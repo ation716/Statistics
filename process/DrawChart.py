@@ -77,6 +77,9 @@ class PlotDecorators:
 
     @staticmethod
     def scatter(func):
+        """
+        画散点图
+        """
         @wraps(func)
         def wrapper(ax, *args, **kwargs):
             data = func(ax, *args, **kwargs)  # 调用原函数
@@ -86,6 +89,47 @@ class PlotDecorators:
             y = data.get('y')
             ax.scatter(x, y, s=4, color='blue', label='Scatter Plot')
             return data  # 返回数据
+        return wrapper
+
+    @staticmethod
+    def observation(func):
+        """
+        线性最小二乘法 - 画趋势图（不知道用啥形容好）
+        """
+        @wraps(func)
+        def wrapper(ax, *args, **kwargs):
+            data = func(ax, *args, **kwargs)  # 调用原函数
+            if (data.get('x') is None) or (data.get('y') is None):
+                raise Exception('画图时（线性最小二乘法），x / y不能为空')
+            x = np.array(data.get('x'))
+            y = np.array(data.get('y'))
+            if isinstance(x[0], datetime):  # 检查 x 是否为 datetime 类型
+                # 将 datetime 对象转换为时间戳（秒数），用于计算
+                x_timestamp = np.array([dt.timestamp() for dt in x])
+
+                # 构造设计矩阵 X (包括偏置项 1)
+                X = np.vstack([x_timestamp, np.ones(len(x_timestamp))]).T  # 每一行是 [x_i, 1]
+
+                # 求解正规方程 (X^T * X)^(-1) * X^T * y
+                theta = np.linalg.inv(X.T @ X) @ X.T @ y
+                m, b = theta  # 得到拟合直线的斜率和截距
+
+                # 绘制拟合直线：需要将时间戳转换回 datetime 进行绘制
+                x_fitted = np.array([datetime.fromtimestamp(ts) for ts in x_timestamp])  # 转换回 datetime
+                ax.plot(x_fitted, m * x_timestamp + b, color='purple', label=f'Fitted line: y = {m:.2f}x + {b:.2f}')
+
+            else:
+                # 如果 x 不是 datetime 类型，按常规方式处理
+                X = np.vstack([x, np.ones(len(x))]).T  # 每一行是 [x_i, 1]
+
+                # 求解正规方程 (X^T * X)^(-1) * X^T * y
+                theta = np.linalg.inv(X.T @ X) @ X.T @ y
+                m, b = theta  # 得到拟合直线的斜率和截距
+
+                ax.plot(x, m * x + b, color='purple', label=f'Fitted line: y = {m:.2f}x + {b:.2f}')  # 绘制拟合直线
+
+            return data  # 返回数据
+
         return wrapper
 
     # 自动绘制函数

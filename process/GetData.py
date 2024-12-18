@@ -13,11 +13,11 @@ class LogData:
         """
         # 定义日志文件的目录路径
         # directory_path = r'C:\.SeerRobotics\rdscore\diagnosis\log'
-        directory_path = r'D:\log'
+        directory_path = r'./log'
 
         # 给定的时间范围，格式为：'YYYY-MM-DD HH:MM:SS'
         start_time_str = '2024-11-20 14:15:41'
-        end_time_str = '2024-11-20 14:39:00'
+        end_time_str = '2024-11-20 16:39:00'
 
         # 将字符串时间转换为 datetime 对象
         start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
