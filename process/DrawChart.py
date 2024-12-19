@@ -1,3 +1,5 @@
+from turtledemo.penrose import start
+
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime,timedelta
@@ -6,9 +8,27 @@ from scipy.ndimage import label
 from sklearn.preprocessing import StandardScaler
 from functools import wraps
 from sklearn.linear_model import LinearRegression
+from scipy.interpolate import CubicSpline
+
+
+def data_deduplication(x, y):
+    # 使用 zip 创建一对一的 (x, y) 对，并转换为字典去重
+    xy_pairs = list(zip(x, y))
+
+    # 通过 dict 去重（会保留第一个出现的元素）
+    unique_xy_pairs = dict()  # 创建一个空字典来保存唯一的 (x, y) 对
+    for xi, yi in xy_pairs:
+        if xi not in unique_xy_pairs:
+            unique_xy_pairs[xi] = yi
+
+    # 解压唯一的 (x, y) 对
+    x = list(unique_xy_pairs.keys())
+    y = list(unique_xy_pairs.values())
+    return x, y
 
 # 创建一个包含装饰器画图表的类
 class PlotDecorators:
+
     @staticmethod
     def line(label='',color='blue',linestyle='-',zorder=2):
         """
@@ -52,6 +72,7 @@ class PlotDecorators:
                     avg_y = datetime.fromtimestamp(avg_timestamp)
                 else:
                     avg_y = np.mean(y)
+                x.sort()
                 # 绘制平均线
                 ax.hlines(y=avg_y, xmin=x[0], xmax=x[-1], color=color, linestyle=linestyle, label=label,zorder=zorder)
                 return data  # 返回数据
@@ -83,6 +104,7 @@ class PlotDecorators:
                     avg_x = datetime.fromtimestamp(avg_timestamp)
                 else:
                     avg_x = np.mean(x)
+                y.sort()
                 # 绘制平均线
                 ax.vlines(x=avg_x, ymin=y[0], ymax=y[-1], color=color, linestyle=linestyle, label=label,zorder=zorder)
                 return data  # 返回数据
@@ -108,7 +130,7 @@ class PlotDecorators:
         return decorator
 
     @staticmethod
-    def observation(label='',color='purple',linestyle='-',zorder=5):
+    def least_square_method(label='',color='purple',linestyle='-',zorder=5):
         """
         线性最小二乘法 - 画趋势图
         """
@@ -149,13 +171,19 @@ class PlotDecorators:
                 y_fit = model.predict(x_numeric)
 
                 # 绘制拟合曲线
-                if isinstance(x[0], datetime):  # 如果 x 是 datetime 类型，需将拟合的时间戳转换为 datetime
+                if len(x) > 0 and isinstance(x[0], datetime):  # 如果 x 是 datetime 类型，需将拟合的时间戳转换为 datetime
                     # 将拟合曲线的时间戳转换回 datetime 类型
                     x_fitted = np.array([x[0] + timedelta(seconds=ts) for ts in x_numeric.flatten()])
-                    ax.plot(x_fitted, y_fit.flatten(), color=color, label=label,
-                            zorder=zorder,linestyle=linestyle)
+                    if len(y) > 0 and isinstance(y[0], datetime):  # y 也为 datetime 类型
+                        # 将拟合的 y 值（秒数）转换回 datetime 类型
+                        y_fitted_datetime = np.array([y[0] + timedelta(seconds=ts) for ts in y_fit.flatten()])
+                        ax.plot(x_fitted, y_fitted_datetime, color=color, label=label,
+                                zorder=zorder, linestyle=linestyle)
+                    else:
+                        ax.plot(x_fitted, y_fit.flatten(), color=color, label=label,
+                                zorder=zorder, linestyle=linestyle)
                 # 如果 y 是 datetime 类型，绘制拟合曲线时将 y_fit 转换回 datetime
-                elif isinstance(y[0], datetime):
+                elif  len(y) > 0 and isinstance(y[0], datetime):
                     # 将拟合的 y 值（秒数）转换回 datetime 类型
                     y_fitted_datetime = np.array([y[0] + timedelta(seconds=ts) for ts in y_fit.flatten()])
                     ax.plot(x, y_fitted_datetime, color=color, label=label, zorder=zorder,linestyle=linestyle)
@@ -163,6 +191,79 @@ class PlotDecorators:
                     ax.plot(x, y_fit.flatten(), color=color, label=label, zorder=zorder,linestyle=linestyle)
                 return data  # 返回数据
             return wrapper
+        return decorator
+
+    @staticmethod
+    def transect(label='', color='orange', linestyle='-', zorder=5):
+        """
+        三次样条插值 - 画趋势图
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(ax, *args, **kwargs):
+                # 调用原函数获取数据
+                data = func(ax, *args, **kwargs)
+
+                # 数据检查
+                x = data.get('x')
+                y = data.get('y')
+                if x is None or y is None:
+                    raise Exception('画图时（三次样条插值），x、y不能为空')
+
+                x = np.array(x)
+                y = np.array(y)
+                x,y = data_deduplication(x,y)
+
+                # 判断是否为datetime类型
+                x_is_datetime = isinstance(x[0], datetime)
+                y_is_datetime = isinstance(y[0], datetime)
+
+                # 如果x和y都是datetime类型，则进行统一处理
+                if x_is_datetime and y_is_datetime:
+                    # 将x和y都转换为秒数，避免微秒精度问题
+                    x_numeric = np.array([(dt - x[0]).total_seconds() for dt in x])
+                    y_numeric = np.array([(dt - y[0]).total_seconds() for dt in y])
+                elif x_is_datetime:
+                    x_numeric = np.array([(dt - x[0]).total_seconds() for dt in x])
+                    y_numeric = y
+                elif y_is_datetime:
+                    x_numeric = x
+                    y_numeric = np.array([(dt - y[0]).total_seconds() for dt in y])
+                else:
+                    # x和y都不是datetime类型
+                    x_numeric = x
+                    y_numeric = y
+
+                # 使用 CubicSpline 进行三次样条插值
+                cs = CubicSpline(x_numeric, y_numeric)
+
+                # 生成插值点（更密集的 x 点）
+                num_points = len(x) * 10  # 根据实际情况，可以调整密度
+                x_new = np.linspace(x_numeric[0], x_numeric[-1], num_points)
+                y_new = cs(x_new)
+
+                # 绘制结果
+                if x_is_datetime and y_is_datetime:
+                    # 如果x和y都为datetime类型，生成新的datetime对象
+                    x_fitted = np.array([x[0] + timedelta(seconds=ts) for ts in x_new.flatten()])
+                    y_fitted = np.array([y[0] + timedelta(seconds=ts) for ts in y_new.flatten()])
+                    ax.plot(x_fitted, y_fitted, color=color, label=label, zorder=zorder, linestyle=linestyle)
+                elif x_is_datetime:
+                    # 只有x为datetime类型，y为数值类型
+                    x_fitted = np.array([x[0] + timedelta(seconds=ts) for ts in x_new.flatten()])
+                    ax.plot(x_fitted, y_new, color=color, label=label, zorder=zorder, linestyle=linestyle)
+                elif y_is_datetime:
+                    # 只有y为datetime类型，x为数值类型
+                    y_fitted = np.array([y[0] + timedelta(seconds=ts) for ts in y_new.flatten()])
+                    ax.plot(x_new, y_fitted, color=color, label=label, zorder=zorder, linestyle=linestyle)
+                else:
+                    # x和y都为数值类型
+                    ax.plot(x_new, y_new, color=color, label=label, zorder=zorder, linestyle=linestyle)
+                return data  # 返回数据
+
+            return wrapper
+
         return decorator
 
     # 自动绘制函数
